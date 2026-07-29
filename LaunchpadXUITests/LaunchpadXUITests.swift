@@ -60,10 +60,13 @@ final class LaunchpadXUITests: XCTestCase {
         )
         blankPointBetweenTiles.tap()
         XCTAssertEqual(root.value as? String, "normal")
+        XCTAssertEqual(visibleTile.value as? String, "normal")
+        Thread.sleep(forTimeInterval: 0.35)
+        XCTAssertEqual(visibleTile.value as? String, "normal")
     }
 
     @MainActor
-    func testFolderNameDoubleClickOpensRenameEditor() throws {
+    func testFolderRenameAndBackgroundTapExitsEditing() throws {
         let app = XCUIApplication()
         app.launchArguments = [
             "--show-launcher-for-ui-testing",
@@ -78,16 +81,27 @@ final class LaunchpadXUITests: XCTestCase {
             .matching(identifier: "launcher.root")
             .firstMatch
         XCTAssertTrue(root.waitForExistence(timeout: 8))
+        let launcherPanel = app.dialogs.firstMatch
         let editSource = app.buttons["Fixture 0"].firstMatch
         let folder = app.buttons["Fixture Folder"].firstMatch
+        let rightNeighbor = app.buttons["Fixture 3"].firstMatch
         XCTAssertTrue(editSource.waitForExistence(timeout: 8))
         XCTAssertTrue(folder.exists)
+        XCTAssertTrue(rightNeighbor.exists)
+        let panelFrame = launcherPanel.frame
+        let folderCoordinate = launcherPanel.coordinate(
+            withNormalizedOffset: CGVector(
+                dx: ((editSource.frame.midX + rightNeighbor.frame.midX) / 2 - panelFrame.minX)
+                    / panelFrame.width,
+                dy: (editSource.frame.midY - panelFrame.minY) / panelFrame.height
+            )
+        )
 
         editSource.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             .press(forDuration: 1.25)
         XCTAssertEqual(root.value as? String, "editing")
 
-        folder.click()
+        folderCoordinate.click()
         let folderName = app.staticTexts["Fixture Folder"].firstMatch
         XCTAssertTrue(folderName.waitForExistence(timeout: 3))
         folderName.doubleClick()
@@ -99,6 +113,14 @@ final class LaunchpadXUITests: XCTestCase {
         editor.typeKey(.escape, modifierFlags: [])
         XCTAssertFalse(editor.exists)
         XCTAssertTrue(app.buttons["Fixture Folder"].firstMatch.exists)
+
+        XCTAssertTrue(launcherPanel.exists)
+        launcherPanel.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.50))
+            .tap()
+        XCTAssertEqual(root.value as? String, "normal")
+        XCTAssertFalse(app.descendants(matching: .any)
+            .matching(identifier: "folder.tile")
+            .firstMatch.exists)
     }
 
     @MainActor

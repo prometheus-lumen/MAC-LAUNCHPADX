@@ -27,7 +27,7 @@ struct LauncherView: View {
             if let folder = viewModel.openedFolder {
                 Color.black.opacity(0.32)
                     .ignoresSafeArea()
-                    .onTapGesture { viewModel.closeFolder() }
+                    .onTapGesture { handleBackgroundTap() }
                     .onDrop(
                         of: [UTType.plainText],
                         delegate: FolderOutsideDropDelegate(viewModel: viewModel)
@@ -195,8 +195,16 @@ struct LauncherView: View {
     }
 
     private func handleBackgroundTap() {
-        if viewModel.openedFolderID != nil { viewModel.closeFolder() }
-        else if viewModel.isEditing { viewModel.endEditing() }
+        if viewModel.isEditing {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                viewModel.endEditing()
+            }
+            if viewModel.openedFolderID != nil {
+                viewModel.closeFolder()
+            }
+        } else if viewModel.openedFolderID != nil { viewModel.closeFolder() }
         else { viewModel.onDismiss?() }
     }
 
@@ -391,6 +399,7 @@ private struct AppTile: View {
         .animation(.spring(response: 0.24, dampingFraction: 0.82), value: showsGroupingPreview)
         .accessibilityLabel(entry.title)
         .accessibilityIdentifier("launcher.tile")
+        .accessibilityValue(editing || isWiggling ? "editing" : "normal")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction(.default) {
             action()
@@ -426,7 +435,11 @@ private struct AppTile: View {
                 }
             }
         } else {
-            withAnimation(.easeOut(duration: 0.12)) { isWiggling = false }
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                isWiggling = false
+            }
         }
     }
 }

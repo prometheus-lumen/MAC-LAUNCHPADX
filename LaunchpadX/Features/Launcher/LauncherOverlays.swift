@@ -216,7 +216,9 @@ private struct FolderApplicationTile: View {
                 isWiggling = true
             }
         } else {
-            withAnimation(.easeOut(duration: 0.12)) {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
                 isWiggling = false
             }
         }
