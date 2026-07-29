@@ -80,16 +80,18 @@ struct FolderOverlayView: View {
                         .focused($nameFocused)
                         .onSubmit { viewModel.saveFolderName(draftName) }
                         .onKeyPress(.escape) { viewModel.renamingFolderID = nil; return .handled }
+                        .accessibilityIdentifier("folder.name.editor")
                 } else {
                     Text(folder.title)
                         .font(.system(size: 20, weight: .regular))
                         .shadow(color: .black.opacity(0.7), radius: 2, y: 1)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 7)
+                        .contentShape(Rectangle())
                         .onTapGesture(count: 2) {
-                            guard viewModel.isEditing else { return }
-                            draftName = folder.title
-                            viewModel.renamingFolderID = folder.id
-                            nameFocused = true
+                            viewModel.beginRenamingFolder(folder)
                         }
+                        .accessibilityIdentifier("folder.name.label")
                 }
                 LazyVGrid(columns: Array(repeating: GridItem(.fixed(112), spacing: 30), count: 5), spacing: 30) {
                     ForEach(viewModel.openedFolderApplications, id: \.0) { recordID, app in

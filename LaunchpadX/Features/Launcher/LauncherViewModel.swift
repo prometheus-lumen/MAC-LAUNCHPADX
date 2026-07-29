@@ -206,6 +206,12 @@ final class LauncherViewModel {
         }
     }
 
+    func beginRenamingFolder(_ entry: LauncherEntry) {
+        guard isEditing, entry.kind == .folder else { return }
+        openedFolderID = entry.id
+        renamingFolderID = entry.id
+    }
+
     func closeFolder() {
         finishFolderDragging()
         renamingFolderID = nil

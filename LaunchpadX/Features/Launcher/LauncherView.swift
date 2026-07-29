@@ -188,7 +188,9 @@ struct LauncherView: View {
             Button(String(localized: "Hide Application")) { viewModel.hide(entry: entry) }
             Button(String(localized: "Show in Finder")) { viewModel.reveal(entry: entry) }
         } else if viewModel.isEditing {
-            Button(String(localized: "Rename Folder")) { viewModel.renamingFolderID = entry.id }
+            Button(String(localized: "Rename Folder")) {
+                viewModel.beginRenamingFolder(entry)
+            }
         }
     }
 
@@ -224,7 +226,6 @@ private struct PagedLauncherGrid<Content: View>: View {
             ZStack {
                 Color.clear
                     .contentShape(Rectangle())
-                    .onTapGesture(perform: onBackgroundTap)
                 HStack(spacing: 0) {
                     ForEach(0..<viewModel.pageCount, id: \.self) { page in
                         Group {
@@ -243,6 +244,14 @@ private struct PagedLauncherGrid<Content: View>: View {
                 .offset(x: -CGFloat(viewModel.selectedPage) * proxy.size.width)
                 .animation(.interactiveSpring(response: 0.30, dampingFraction: 0.88), value: viewModel.selectedPage)
             }
+            .simultaneousGesture(
+                SpatialTapGesture().onEnded { tap in
+                    guard !stableEntryFrames.values.contains(where: {
+                        $0.contains(tap.location)
+                    }) else { return }
+                    onBackgroundTap()
+                }
+            )
         }
         .clipped()
         .coordinateSpace(name: LauncherGridCoordinateSpace.name)

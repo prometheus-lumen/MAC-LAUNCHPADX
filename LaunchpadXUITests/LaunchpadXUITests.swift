@@ -46,8 +46,59 @@ final class LaunchpadXUITests: XCTestCase {
             .press(forDuration: 1.25)
         XCTAssertEqual(root.value as? String, "editing")
 
-        launcherPanel.coordinate(withNormalizedOffset: CGVector(dx: 0.90, dy: 0.66)).tap()
+        let adjacentTile = app.buttons["Fixture 1"].firstMatch
+        XCTAssertTrue(adjacentTile.exists)
+        let panelFrame = launcherPanel.frame
+        let blankPointBetweenTiles = launcherPanel.coordinate(
+            withNormalizedOffset: CGVector(
+                dx: (
+                    (visibleTile.frame.maxX + adjacentTile.frame.minX) / 2
+                        - panelFrame.minX
+                ) / panelFrame.width,
+                dy: (visibleTile.frame.midY - panelFrame.minY) / panelFrame.height
+            )
+        )
+        blankPointBetweenTiles.tap()
         XCTAssertEqual(root.value as? String, "normal")
+    }
+
+    @MainActor
+    func testFolderNameDoubleClickOpensRenameEditor() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--show-launcher-for-ui-testing",
+            "--ui-testing-isolated-data",
+            "--ui-testing-fixtures",
+            "--ui-testing-existing-folder",
+        ]
+        app.launch()
+        app.activate()
+
+        let root = app.descendants(matching: .any)
+            .matching(identifier: "launcher.root")
+            .firstMatch
+        XCTAssertTrue(root.waitForExistence(timeout: 8))
+        let editSource = app.buttons["Fixture 0"].firstMatch
+        let folder = app.buttons["Fixture Folder"].firstMatch
+        XCTAssertTrue(editSource.waitForExistence(timeout: 8))
+        XCTAssertTrue(folder.exists)
+
+        editSource.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 1.25)
+        XCTAssertEqual(root.value as? String, "editing")
+
+        folder.click()
+        let folderName = app.staticTexts["Fixture Folder"].firstMatch
+        XCTAssertTrue(folderName.waitForExistence(timeout: 3))
+        folderName.doubleClick()
+
+        let editor = app.textFields
+            .matching(NSPredicate(format: "placeholderValue == %@", "Folder name"))
+            .firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 3))
+        editor.typeKey(.escape, modifierFlags: [])
+        XCTAssertFalse(editor.exists)
+        XCTAssertTrue(app.buttons["Fixture Folder"].firstMatch.exists)
     }
 
     @MainActor

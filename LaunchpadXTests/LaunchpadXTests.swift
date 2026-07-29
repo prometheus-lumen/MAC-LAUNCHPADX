@@ -181,6 +181,37 @@ struct LaunchpadXTests {
     }
 
     @MainActor
+    @Test func renamingFolderPersistsItsNewName() throws {
+        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(
+            for: ApplicationRecord.self,
+            LayoutItemRecord.self,
+            configurations: configuration
+        )
+        let repository = LayoutRepository(container: container)
+        let applications = (0..<2).map { index in
+            InstalledApplication(
+                bundleIdentifier: "com.example.folder-rename.\(index)",
+                displayName: "Rename \(index)",
+                bundleURL: URL(fileURLWithPath: "/Applications/Rename \(index).app")
+            )
+        }
+
+        try repository.reconcile(discovered: applications)
+        let initial = try repository.snapshot(discoveredApplications: applications)
+        let createdFolderID = try repository.createFolder(
+            draggedEntryID: initial.entries[1].id,
+            targetEntryID: initial.entries[0].id
+        )
+        let folderID = try #require(createdFolderID)
+
+        try repository.renameFolder(id: folderID, name: "Renamed Folder")
+        let renamed = try repository.snapshot(discoveredApplications: applications)
+
+        #expect(renamed.entries.first?.title == "Renamed Folder")
+    }
+
+    @MainActor
     @Test func reorderingApplicationsInsideFolderPersistsExactOrder() throws {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
