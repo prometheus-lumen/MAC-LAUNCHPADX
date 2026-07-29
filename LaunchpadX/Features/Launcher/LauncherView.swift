@@ -342,10 +342,52 @@ private struct AppTile: View {
     let onDragEnded: () -> Void
     let action: () -> Void
     let onLongPress: () -> Void
-    @State private var isWiggling = false
-    @State private var wiggleGeneration = 0
 
     var body: some View {
+        Group {
+            if editing {
+                tileContent
+                    .phaseAnimator(wigglePhases) { content, phase in
+                        content
+                            .rotationEffect(.degrees(phase ? wiggleAngle : -wiggleAngle))
+                            .offset(
+                                x: phase ? wiggleTravel : -wiggleTravel,
+                                y: phase ? -0.28 : 0.28
+                            )
+                    } animation: { _ in
+                        .easeInOut(duration: wiggleDuration)
+                    }
+            } else {
+                tileContent
+            }
+        }
+        .contentShape(Rectangle())
+        .overlay {
+            AppTilePressSurface(
+                longPressDuration: LaunchpadTheme.editingLongPressDuration,
+                editing: editing,
+                dragPayload: entry.id.uuidString,
+                dragImage: image ?? folderImages.first,
+                dragImageSize: iconSize,
+                onTap: action,
+                onLongPress: onLongPress,
+                onDragBegan: onDragBegan,
+                onDragMoved: onDragMoved,
+                onDragEnded: onDragEnded
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .animation(.spring(response: 0.24, dampingFraction: 0.82), value: showsGroupingPreview)
+        .accessibilityLabel(entry.title)
+        .accessibilityIdentifier("launcher.tile")
+        .accessibilityValue(editing ? "editing" : "normal")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(.default) {
+            action()
+        }
+    }
+
+    private var tileContent: some View {
         VStack(spacing: 7) {
             ZStack {
                 if entry.kind == .folder {
@@ -364,6 +406,7 @@ private struct AppTile: View {
             }
             .frame(width: iconSize, height: iconSize)
             .compositingGroup()
+
             Text(entry.title)
                 .font(.system(size: 12, weight: .regular))
                 .lineLimit(1)
@@ -371,39 +414,6 @@ private struct AppTile: View {
                 .frame(width: iconSize + 40)
         }
         .scaleEffect(showsGroupingPreview ? 1.10 : 1)
-        .rotationEffect(.degrees(editing ? (isWiggling ? wiggleAngle : -wiggleAngle) : 0))
-        .offset(
-            x: editing ? (isWiggling ? wiggleTravel : -wiggleTravel) : 0,
-            y: editing ? (isWiggling ? -0.28 : 0.28) : 0
-        )
-        .contentShape(Rectangle())
-        .overlay {
-            AppTilePressSurface(
-                longPressDuration: LaunchpadTheme.editingLongPressDuration,
-                editing: editing,
-                dragPayload: entry.id.uuidString,
-                dragImage: image ?? folderImages.first,
-                dragImageSize: iconSize,
-                onTap: action,
-                onLongPress: onLongPress,
-                onDragBegan: onDragBegan,
-                onDragMoved: onDragMoved,
-                onDragEnded: onDragEnded
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .onAppear(perform: updateWiggle)
-        .onChange(of: editing) { _, _ in
-            updateWiggle()
-        }
-        .animation(.spring(response: 0.24, dampingFraction: 0.82), value: showsGroupingPreview)
-        .accessibilityLabel(entry.title)
-        .accessibilityIdentifier("launcher.tile")
-        .accessibilityValue(editing || isWiggling ? "editing" : "normal")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction(.default) {
-            action()
-        }
     }
 
     private var wiggleSeed: Int {
@@ -422,24 +432,11 @@ private struct AppTile: View {
         0.115 + Double((wiggleSeed / 11) % 5) * 0.009
     }
 
-    private func updateWiggle() {
-        wiggleGeneration += 1
-        let generation = wiggleGeneration
-        if editing {
-            isWiggling = false
-            let phaseDelay = Double(wiggleSeed % 9) * 0.011
-            DispatchQueue.main.asyncAfter(deadline: .now() + phaseDelay) {
-                guard generation == wiggleGeneration else { return }
-                withAnimation(.easeInOut(duration: wiggleDuration).repeatForever(autoreverses: true)) {
-                    isWiggling = true
-                }
-            }
+    private var wigglePhases: [Bool] {
+        if wiggleSeed.isMultiple(of: 2) {
+            [false, true]
         } else {
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                isWiggling = false
-            }
+            [true, false]
         }
     }
 }

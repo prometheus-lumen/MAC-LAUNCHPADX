@@ -185,9 +185,28 @@ private struct FolderApplicationTile: View {
     let title: String
     let image: NSImage
     let editing: Bool
-    @State private var isWiggling = false
 
     var body: some View {
+        Group {
+            if editing {
+                tileContent
+                    .phaseAnimator([false, true]) { content, phase in
+                        content
+                            .rotationEffect(.degrees(phase ? 0.82 : -0.82))
+                            .offset(x: phase ? 0.34 : -0.34)
+                    } animation: { _ in
+                        .easeInOut(duration: 0.13)
+                    }
+            } else {
+                tileContent
+            }
+        }
+        .contentShape(Rectangle())
+        .accessibilityLabel(title)
+        .accessibilityIdentifier("folder.tile")
+    }
+
+    private var tileContent: some View {
         VStack(spacing: 8) {
             Image(nsImage: image)
                 .resizable()
@@ -199,28 +218,6 @@ private struct FolderApplicationTile: View {
                 .lineLimit(1)
                 .frame(width: 112)
                 .shadow(color: .black.opacity(0.75), radius: 2, y: 1)
-        }
-        .rotationEffect(.degrees(editing ? (isWiggling ? 0.82 : -0.82) : 0))
-        .offset(x: editing ? (isWiggling ? 0.34 : -0.34) : 0)
-        .contentShape(Rectangle())
-        .onAppear(perform: updateWiggle)
-        .onChange(of: editing) { _, _ in updateWiggle() }
-        .accessibilityLabel(title)
-        .accessibilityIdentifier("folder.tile")
-    }
-
-    private func updateWiggle() {
-        if editing {
-            isWiggling = false
-            withAnimation(.easeInOut(duration: 0.13).repeatForever(autoreverses: true)) {
-                isWiggling = true
-            }
-        } else {
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                isWiggling = false
-            }
         }
     }
 }

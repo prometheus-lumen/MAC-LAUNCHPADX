@@ -61,8 +61,15 @@ final class LaunchpadXUITests: XCTestCase {
         blankPointBetweenTiles.tap()
         XCTAssertEqual(root.value as? String, "normal")
         XCTAssertEqual(visibleTile.value as? String, "normal")
+        Thread.sleep(forTimeInterval: 0.50)
+        let stoppedFrame = visibleTile.frame
         Thread.sleep(forTimeInterval: 0.35)
         XCTAssertEqual(visibleTile.value as? String, "normal")
+        let stableFrame = visibleTile.frame
+        XCTAssertEqual(stoppedFrame.midX, stableFrame.midX, accuracy: 0.1)
+        XCTAssertEqual(stoppedFrame.midY, stableFrame.midY, accuracy: 0.1)
+        XCTAssertEqual(stoppedFrame.width, stableFrame.width, accuracy: 0.1)
+        XCTAssertEqual(stoppedFrame.height, stableFrame.height, accuracy: 0.1)
     }
 
     @MainActor
