@@ -6,27 +6,15 @@
 //
 
 import SwiftUI
-import SwiftData
 
 @main
 struct LaunchpadXApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        Settings {
+            SettingsRootView(environment: appDelegate.environment)
+                .frame(minWidth: 1_200, minHeight: 800)
         }
-        .modelContainer(sharedModelContainer)
     }
 }
