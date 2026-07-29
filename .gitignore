@@ -1,3 +1,80 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100/
+.Spotlight-V100/
+.TemporaryItems/
+.Trashes/
+.fseventsd/
+
+# Xcode user data
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
+# Xcode build products and reports
 build/
 DerivedData/
-.DS_Store
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
+*.xcarchive
+*.xcresult
+*.xcactivitylog
+*.xccovarchive
+*.xccovreport
+*.profdata
+*.profraw
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+Package.pins
+
+# Dependency manager build output
+Pods/
+Carthage/Build/
+
+# Release and packaging artifacts
+*.dmg
+*.pkg
+*.mpkg
+*.tar
+*.tar.gz
+*.zip
+*.noindex/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.cer
+*.p12
+*.mobileprovision
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs and temporary files
+*.log
+*.tmp
+.tmp/
+tmp/
