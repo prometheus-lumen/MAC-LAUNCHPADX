@@ -29,6 +29,31 @@ struct LaunchpadXTests {
     }
 
     @MainActor
+    @Test func unchangedApplicationScanDoesNotRequireGridRefresh() {
+        let original = InstalledApplication(
+            bundleIdentifier: "com.example.launcher",
+            displayName: "Launcher",
+            bundleURL: URL(fileURLWithPath: "/Applications/Launcher.app"),
+            version: "1.0"
+        )
+        let rediscovered = InstalledApplication(
+            bundleIdentifier: original.bundleIdentifier,
+            displayName: original.displayName,
+            bundleURL: original.bundleURL,
+            version: original.version
+        )
+        let updated = InstalledApplication(
+            bundleIdentifier: original.bundleIdentifier,
+            displayName: original.displayName,
+            bundleURL: original.bundleURL,
+            version: "1.1"
+        )
+
+        #expect(LauncherViewModel.hasSameDiscoveredApplications([original], [rediscovered]))
+        #expect(!LauncherViewModel.hasSameDiscoveredApplications([original], [updated]))
+    }
+
+    @MainActor
     @Test func searchPrioritizesExactNameAndMatchesBundleID() {
         let calculator = makeRecord(name: "Calculator", bundleID: "com.apple.calculator")
         let calendar = makeRecord(name: "Calendar", bundleID: "com.apple.calendar")

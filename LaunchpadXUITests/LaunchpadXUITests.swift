@@ -5,6 +5,7 @@
 //  Created by 张航 on 2026/7/29.
 //
 
+import AppKit
 import XCTest
 
 final class LaunchpadXUITests: XCTestCase {
@@ -146,15 +147,24 @@ final class LaunchpadXUITests: XCTestCase {
             .matching(identifier: "launcher.root")
             .firstMatch
         XCTAssertTrue(root.waitForExistence(timeout: 8))
-        let launcherPanel = app.dialogs.firstMatch
+        let launcherFrame = NSScreen.main?.frame ?? app.dialogs.firstMatch.frame
         let source = app.buttons["Fixture 0"].firstMatch
         XCTAssertTrue(source.waitForExistence(timeout: 8))
-        let rightEdge = launcherPanel.coordinate(
-            withNormalizedOffset: CGVector(dx: 0.96, dy: 0.52)
+        let coordinateSpace = app.textFields.firstMatch
+        XCTAssertTrue(coordinateSpace.exists)
+        let coordinateFrame = coordinateSpace.frame
+        let sourceCenter = source.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        )
+        let rightEdge = coordinateSpace.coordinate(
+            withNormalizedOffset:
+            CGVector(
+                dx: (launcherFrame.maxX - 72 - coordinateFrame.minX) / coordinateFrame.width,
+                dy: (launcherFrame.midY - coordinateFrame.minY) / coordinateFrame.height
+            )
         )
 
-        source.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .press(
+        sourceCenter.press(
                 forDuration: 1.25,
                 thenDragTo: rightEdge,
                 withVelocity: .slow,
@@ -185,15 +195,24 @@ final class LaunchpadXUITests: XCTestCase {
             .firstMatch
         XCTAssertTrue(root.waitForExistence(timeout: 8))
         app.typeKey(.rightArrow, modifierFlags: [])
+        let launcherFrame = NSScreen.main?.frame ?? app.dialogs.firstMatch.frame
         let source = app.buttons["Fixture 35"].firstMatch
         XCTAssertTrue(source.waitForExistence(timeout: 4))
-        let launcherPanel = app.dialogs.firstMatch
-        let leftEdge = launcherPanel.coordinate(
-            withNormalizedOffset: CGVector(dx: 0.04, dy: 0.52)
+        let coordinateSpace = app.textFields.firstMatch
+        XCTAssertTrue(coordinateSpace.exists)
+        let coordinateFrame = coordinateSpace.frame
+        let sourceCenter = source.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        )
+        let leftEdge = coordinateSpace.coordinate(
+            withNormalizedOffset:
+            CGVector(
+                dx: (launcherFrame.minX + 72 - coordinateFrame.minX) / coordinateFrame.width,
+                dy: (launcherFrame.midY - coordinateFrame.minY) / coordinateFrame.height
+            )
         )
 
-        source.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .press(
+        sourceCenter.press(
                 forDuration: 1.25,
                 thenDragTo: leftEdge,
                 withVelocity: .slow,

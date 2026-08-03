@@ -35,6 +35,7 @@ final class LauncherViewModel {
     @ObservationIgnored private var dragEdgeTurnedPage = false
     @ObservationIgnored private var scanInProgress = false
     @ObservationIgnored private var scanRequestedWhileRunning = false
+    @ObservationIgnored private var iconPrewarmTask: Task<Void, Never>?
 
     private enum DragEdge: Equatable {
         case previous
@@ -101,10 +102,19 @@ final class LauncherViewModel {
             let roots = settings.allScanRoots
             let apps = await discovery.scan(roots: roots)
             guard !Task.isCancelled else { return }
+            guard !Self.hasSameDiscoveredApplications(apps, discoveredApplications) else { continue }
             do {
                 try repository.reconcile(discovered: apps)
+                let nextSnapshot = try repository.snapshot(discoveredApplications: apps)
+                let priorityApplications = prioritizedApplicationsForIconPrewarming(
+                    snapshot: nextSnapshot,
+                    discoveredApplications: apps
+                )
+                await icons.prewarm(Array(priorityApplications.prefix(settings.gridCapacity)))
+                guard !Task.isCancelled else { return }
                 discoveredApplications = apps
-                try reloadSnapshot()
+                applySnapshot(nextSnapshot)
+                scheduleIconPrewarming()
             } catch {
                 presentError(error)
             }
@@ -117,6 +127,7 @@ final class LauncherViewModel {
             try repository.reconcile(discovered: applications)
             discoveredApplications = applications
             try reloadSnapshot()
+            scheduleIconPrewarming()
         } catch {
             presentError(error)
         }
@@ -124,7 +135,14 @@ final class LauncherViewModel {
 #endif
 
     func reloadSnapshot(refreshesSearch: Bool = true) throws {
-        snapshot = try repository.snapshot(discoveredApplications: discoveredApplications)
+        applySnapshot(
+            try repository.snapshot(discoveredApplications: discoveredApplications),
+            refreshesSearch: refreshesSearch
+        )
+    }
+
+    private func applySnapshot(_ nextSnapshot: LauncherSnapshot, refreshesSearch: Bool = true) {
+        snapshot = nextSnapshot
         selectedPage = min(selectedPage, pageCount - 1)
         if refreshesSearch {
             refreshSearch()
@@ -777,7 +795,10 @@ final class LauncherViewModel {
         }
     }
 
-    func clearIconCache() { icons.clearCache() }
+    func clearIconCache() {
+        icons.clearCache()
+        scheduleIconPrewarming()
+    }
     func icon(for application: InstalledApplication) -> NSImage { icons.icon(for: application) }
     func groupingPreviewImages(for entry: LauncherEntry) -> [NSImage] {
         guard groupingTargetID == entry.id else { return [] }
@@ -793,6 +814,64 @@ final class LauncherViewModel {
         return [entry.application.map(icon(for:)), draggedImage].compactMap { $0 }
     }
     func presentError(_ error: Error) { errorMessage = error.localizedDescription }
+
+    nonisolated static func hasSameDiscoveredApplications(
+        _ lhs: [InstalledApplication],
+        _ rhs: [InstalledApplication]
+    ) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        let rhsByPath = Dictionary(grouping: rhs, by: \.normalizedPath)
+        guard rhsByPath.values.allSatisfy({ $0.count == 1 }) else { return false }
+        return lhs.allSatisfy { application in
+            guard let existing = rhsByPath[application.normalizedPath]?.first else { return false }
+            return application.bundleIdentifier == existing.bundleIdentifier
+                && application.displayName == existing.displayName
+                && application.version == existing.version
+                && application.isSystemApplication == existing.isSystemApplication
+        }
+    }
+
+    private func scheduleIconPrewarming() {
+        iconPrewarmTask?.cancel()
+        let applications = prioritizedApplicationsForIconPrewarming(
+            snapshot: snapshot,
+            discoveredApplications: discoveredApplications
+        )
+        iconPrewarmTask = Task(priority: .background) { [icons] in
+            await icons.prewarm(applications)
+        }
+    }
+
+    private func prioritizedApplicationsForIconPrewarming(
+        snapshot: LauncherSnapshot,
+        discoveredApplications: [InstalledApplication]
+    ) -> [InstalledApplication] {
+        let currentRange = (selectedPage * settings.gridCapacity)..<((selectedPage + 1) * settings.gridCapacity)
+        let currentEntries = snapshot.entries
+            .filter { currentRange.contains($0.layoutIndex) }
+            .sorted { $0.layoutIndex < $1.layoutIndex }
+        let currentEntryIDs = Set(currentEntries.map(\.id))
+        let orderedEntries = currentEntries + snapshot.entries.filter { !currentEntryIDs.contains($0.id) }
+        var seenPaths = Set<String>()
+        var applications: [InstalledApplication] = []
+
+        func append(_ application: InstalledApplication?) {
+            guard let application,
+                  seenPaths.insert(application.normalizedPath).inserted else { return }
+            applications.append(application)
+        }
+
+        for entry in orderedEntries {
+            append(entry.application)
+            for recordID in entry.childApplicationRecordIDs {
+                append(snapshot.applications[recordID])
+            }
+        }
+        for application in discoveredApplications {
+            append(application)
+        }
+        return applications
+    }
 
     private func refreshSearch() {
         do {

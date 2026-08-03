@@ -130,7 +130,7 @@ final class AppEnvironment {
 
     private func startScheduledScanning() {
         scheduledScanTask?.cancel()
-        scheduledScanTask = Task(priority: .utility) { [weak launcherViewModel] in
+        scheduledScanTask = Task(priority: .background) { [weak launcherViewModel] in
             do {
                 try await Task.sleep(for: ScanPolicy.initialDelay)
             } catch {

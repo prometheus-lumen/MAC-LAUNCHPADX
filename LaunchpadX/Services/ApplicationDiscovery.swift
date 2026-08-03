@@ -19,7 +19,7 @@ struct ApplicationDiscoveryService: ApplicationDiscovering {
     }
 
     nonisolated func scan(roots: [URL]) async -> [InstalledApplication] {
-        await Task.detached(priority: .utility) {
+        await Task.detached(priority: .background) {
             Self.scanSynchronously(roots: roots)
         }.value
     }
@@ -94,6 +94,7 @@ struct ApplicationLauncherService: ApplicationLaunching {
 
 protocol IconProviding: Sendable {
     func icon(for application: InstalledApplication) -> NSImage
+    func prewarm(_ applications: [InstalledApplication]) async
     func clearCache()
 }
 
@@ -107,6 +108,17 @@ final class IconProvider: IconProviding, @unchecked Sendable {
         icon.size = NSSize(width: 256, height: 256)
         cache.setObject(icon, forKey: key)
         return icon
+    }
+
+    func prewarm(_ applications: [InstalledApplication]) async {
+        for application in applications {
+            guard !Task.isCancelled else { return }
+            let key = application.normalizedPath as NSString
+            guard cache.object(forKey: key) == nil else { continue }
+            _ = icon(for: application)
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(8))
+        }
     }
 
     func clearCache() { cache.removeAllObjects() }

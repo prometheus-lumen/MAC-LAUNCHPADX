@@ -228,6 +228,8 @@ private struct PagedLauncherGrid<Content: View>: View {
     let onBackgroundTap: () -> Void
     let entryView: (LauncherEntry, Bool) -> Content
     @State private var stableEntryFrames: [UUID: CGRect] = [:]
+    @State private var retainedPage: Int?
+    @State private var pageReleaseTask: Task<Void, Never>?
 
     var body: some View {
         GeometryReader { proxy in
@@ -267,6 +269,21 @@ private struct PagedLauncherGrid<Content: View>: View {
             guard !viewModel.isDraggingSession, !frames.isEmpty else { return }
             stableEntryFrames = frames
         }
+        .onAppear {
+            retainedPage = viewModel.selectedPage
+        }
+        .onChange(of: viewModel.selectedPage) { oldPage, newPage in
+            retainedPage = oldPage
+            pageReleaseTask?.cancel()
+            pageReleaseTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(360))
+                guard !Task.isCancelled, viewModel.selectedPage == newPage else { return }
+                retainedPage = newPage
+            }
+        }
+        .onDisappear {
+            pageReleaseTask?.cancel()
+        }
         .onDrop(
             of: [UTType.plainText],
             delegate: LauncherGridBackgroundDropDelegate(
@@ -277,11 +294,9 @@ private struct PagedLauncherGrid<Content: View>: View {
     }
 
     private func shouldRender(page: Int) -> Bool {
-        if viewModel.isEditing {
-            return page == viewModel.selectedPage
-                || (viewModel.isDraggingSession && abs(page - viewModel.selectedPage) <= 1)
-        }
-        return abs(page - viewModel.selectedPage) <= 1
+        page == viewModel.selectedPage
+            || page == retainedPage
+            || (viewModel.isDraggingSession && abs(page - viewModel.selectedPage) <= 1)
     }
 
     private func pageGrid(entries: [LauncherEntry], isActivePage: Bool) -> some View {
@@ -344,25 +359,25 @@ private struct AppTile: View {
     let onLongPress: () -> Void
 
     var body: some View {
-        Group {
-            if editing {
-                tileContent
-                    .phaseAnimator(wigglePhases) { content, phase in
-                        content
-                            .rotationEffect(.degrees(phase ? wiggleAngle : -wiggleAngle))
-                            .offset(
-                                x: phase ? wiggleTravel : -wiggleTravel,
-                                y: phase ? -0.28 : 0.28
-                            )
-                    } animation: { _ in
-                        .easeInOut(duration: wiggleDuration)
-                    }
-            } else {
-                tileContent
+        ZStack {
+            Group {
+                if editing {
+                    tileContent
+                        .phaseAnimator(wigglePhases) { content, phase in
+                            content
+                                .rotationEffect(.degrees(phase ? wiggleAngle : -wiggleAngle))
+                                .offset(
+                                    x: phase ? wiggleTravel : -wiggleTravel,
+                                    y: phase ? -0.28 : 0.28
+                                )
+                        } animation: { _ in
+                            .easeInOut(duration: wiggleDuration)
+                        }
+                } else {
+                    tileContent
+                }
             }
-        }
-        .contentShape(Rectangle())
-        .overlay {
+
             AppTilePressSurface(
                 longPressDuration: LaunchpadTheme.editingLongPressDuration,
                 editing: editing,
@@ -377,6 +392,7 @@ private struct AppTile: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .contentShape(Rectangle())
         .animation(.spring(response: 0.24, dampingFraction: 0.82), value: showsGroupingPreview)
         .accessibilityLabel(entry.title)
         .accessibilityIdentifier("launcher.tile")
@@ -499,6 +515,7 @@ private final class AppTilePressView: NSView, NSDraggingSource {
     private var isReadyToDrag = false
     private var didStartDragging = false
     private var pressOrigin = NSPoint.zero
+    private var dragWindowFrame = NSRect.zero
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
@@ -542,7 +559,7 @@ private final class AppTilePressView: NSView, NSDraggingSource {
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
-        if newWindow == nil {
+        if newWindow == nil, !didStartDragging {
             cancelPress()
         }
         super.viewWillMove(toWindow: newWindow)
@@ -580,6 +597,7 @@ private final class AppTilePressView: NSView, NSDraggingSource {
             ),
             contents: dragImage ?? NSImage()
         )
+        dragWindowFrame = window?.frame ?? .zero
         onDragBegan()
         let session = beginDraggingSession(with: [draggingItem], event: event, source: self)
         session.animatesToStartingPositionsOnCancelOrFail = false
@@ -598,7 +616,7 @@ private final class AppTilePressView: NSView, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, movedTo screenPoint: NSPoint) {
-        onDragMoved(screenPoint, window?.frame ?? .zero)
+        onDragMoved(screenPoint, dragWindowFrame)
     }
 
     func draggingSession(
@@ -622,6 +640,7 @@ private final class AppTilePressView: NSView, NSDraggingSource {
         didTriggerLongPress = false
         isReadyToDrag = false
         didStartDragging = false
+        dragWindowFrame = .zero
     }
 }
 
@@ -745,24 +764,53 @@ private struct LauncherGridBackgroundDropDelegate: DropDelegate {
 
 private struct LauncherBackgroundView: View {
     @Bindable var settings: SettingsStore
+    @State private var cachedImage: NSImage?
+    @State private var loadedSourceKey: String?
 
     var body: some View {
         ZStack {
-            if settings.backgroundKind == .customImage,
-               let path = settings.customBackgroundPath,
-               let image = NSImage(contentsOfFile: path) {
-                Image(nsImage: image).resizable().scaledToFill()
-            } else if settings.backgroundKind == .wallpaper,
-                      let screen = NSScreen.main,
-                      let url = NSWorkspace.shared.desktopImageURL(for: screen),
-                      let image = NSImage(contentsOf: url) {
+            if loadedSourceKey == sourceKey, let image = cachedImage {
                 Image(nsImage: image).resizable().scaledToFill()
             } else {
                 LinearGradient(colors: [LaunchpadTheme.desktop, LaunchpadTheme.violet.opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing)
             }
             Rectangle().fill(.black.opacity(0.43))
-            Rectangle().fill(.ultraThinMaterial.opacity(0.30))
+            Rectangle().fill(.white.opacity(0.025))
         }
         .ignoresSafeArea()
+        .task(id: sourceKey) {
+            let key = sourceKey
+            cachedImage = await loadBackgroundImage()
+            guard !Task.isCancelled, sourceKey == key else { return }
+            loadedSourceKey = key
+        }
+    }
+
+    private var sourceKey: String {
+        switch settings.backgroundKind {
+        case .brandGradient:
+            "gradient"
+        case .wallpaper:
+            "wallpaper:\(NSScreen.main?.displayID ?? 0)"
+        case .customImage:
+            "custom:\(settings.customBackgroundPath ?? "")"
+        }
+    }
+
+    private func loadBackgroundImage() async -> NSImage? {
+        let url: URL?
+        switch settings.backgroundKind {
+        case .brandGradient:
+            return nil
+        case .wallpaper:
+            url = NSScreen.main.flatMap { NSWorkspace.shared.desktopImageURL(for: $0) }
+        case .customImage:
+            url = settings.customBackgroundPath.map(URL.init(fileURLWithPath:))
+        }
+        guard let url else { return nil }
+        let data = await Task.detached(priority: .utility) {
+            try? Data(contentsOf: url, options: .mappedIfSafe)
+        }.value
+        return data.flatMap(NSImage.init(data:))
     }
 }
