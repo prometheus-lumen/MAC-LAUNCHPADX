@@ -3,6 +3,11 @@ import SwiftData
 
 @MainActor
 final class AppEnvironment {
+    private enum ScanPolicy {
+        static let initialDelay: Duration = .milliseconds(700)
+        static let periodicInterval: Duration = .seconds(15 * 60)
+    }
+
     let container: ModelContainer
     let repository: LayoutRepository
     let settings: SettingsStore
@@ -17,6 +22,7 @@ final class AppEnvironment {
     let launcherViewModel: LauncherViewModel
     let launcherWindowController: LauncherWindowController
     lazy var settingsWindowController = SettingsWindowController(environment: self)
+    private var scheduledScanTask: Task<Void, Never>?
 
     init() {
         do {
@@ -97,7 +103,7 @@ final class AppEnvironment {
         }
 #endif
         monitor.start(roots: settings.allScanRoots)
-        Task { await launcherViewModel.rescan() }
+        startScheduledScanning()
         do {
             try hotKeyManager.register(settings.hotKey)
         } catch {
@@ -106,11 +112,40 @@ final class AppEnvironment {
         trackpadWakeService.start()
     }
 
+    func stop() {
+        scheduledScanTask?.cancel()
+        scheduledScanTask = nil
+        monitor.stop()
+        hotKeyManager.unregister()
+        trackpadWakeService.stop()
+    }
+
     func reregisterHotKey() throws {
         try hotKeyManager.register(settings.hotKey)
     }
 
     func showSettings() {
         settingsWindowController.show()
+    }
+
+    private func startScheduledScanning() {
+        scheduledScanTask?.cancel()
+        scheduledScanTask = Task(priority: .utility) { [weak launcherViewModel] in
+            do {
+                try await Task.sleep(for: ScanPolicy.initialDelay)
+            } catch {
+                return
+            }
+
+            while !Task.isCancelled {
+                guard let launcherViewModel else { return }
+                await launcherViewModel.rescan()
+                do {
+                    try await Task.sleep(for: ScanPolicy.periodicInterval)
+                } catch {
+                    return
+                }
+            }
+        }
     }
 }

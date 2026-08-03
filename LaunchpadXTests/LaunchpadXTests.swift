@@ -5,6 +5,7 @@
 //  Created by 张航 on 2026/7/29.
 //
 
+import AppKit
 import CoreGraphics
 import Foundation
 import SwiftData
@@ -12,6 +13,16 @@ import Testing
 @testable import LaunchpadX
 
 struct LaunchpadXTests {
+    @MainActor
+    @Test func statusItemImageHasStableSizeWithoutMutatingApplicationIcon() {
+        let source = NSImage(size: NSSize(width: 1_024, height: 1_024))
+        let statusImage = AppDelegate.makeStatusItemImage(from: source)
+
+        #expect(source.size == NSSize(width: 1_024, height: 1_024))
+        #expect(statusImage !== source)
+        #expect(statusImage.size == NSSize(width: 18, height: 18))
+    }
+
     @MainActor
     @Test func editingLongPressDurationIsExactlyOneSecond() {
         #expect(LaunchpadTheme.editingLongPressDuration == 1.0)

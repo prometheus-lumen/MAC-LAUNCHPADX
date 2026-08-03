@@ -4,6 +4,7 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let environment = AppEnvironment()
     private var statusItem: NSStatusItem?
+    private var statusItemImage: NSImage?
     private var shouldRun = true
     private var isRunningUnderXCTest: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -41,9 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        environment.monitor.stop()
-        environment.hotKeyManager.unregister()
-        environment.trackpadWakeService.stop()
+        environment.stop()
     }
 
     func applyActivationPolicy() {
@@ -57,10 +56,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func configureStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let icon = NSApp.applicationIconImage {
-            icon.size = NSSize(width: 18, height: 18)
-            item.button?.image = icon
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let sourceImage = NSApp.applicationIconImage {
+            let image = Self.makeStatusItemImage(from: sourceImage)
+            statusItemImage = image
+            item.button?.image = image
+            item.button?.imagePosition = .imageOnly
+            item.button?.imageScaling = .scaleProportionallyDown
         }
         let menu = NSMenu()
         menu.addItem(withTitle: String(localized: "Open LaunchpadX"), action: #selector(openLauncher), keyEquivalent: "")
@@ -72,6 +74,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.items.forEach { $0.target = self }
         item.menu = menu
         statusItem = item
+    }
+
+    static func makeStatusItemImage(from sourceImage: NSImage) -> NSImage {
+        let image = (sourceImage.copy() as? NSImage) ?? NSImage(size: sourceImage.size)
+        image.size = NSSize(width: 18, height: 18)
+        image.isTemplate = false
+        return image
     }
 
     @objc private func openLauncher() { environment.launcherWindowController.show() }

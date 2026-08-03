@@ -19,7 +19,7 @@ struct ApplicationDiscoveryService: ApplicationDiscovering {
     }
 
     nonisolated func scan(roots: [URL]) async -> [InstalledApplication] {
-        await Task.detached(priority: .userInitiated) {
+        await Task.detached(priority: .utility) {
             Self.scanSynchronously(roots: roots)
         }.value
     }

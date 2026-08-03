@@ -33,6 +33,8 @@ final class LauncherViewModel {
     @ObservationIgnored private var groupingHoverTask: Task<Void, Never>?
     @ObservationIgnored private var lastReorderTargetID: UUID?
     @ObservationIgnored private var dragEdgeTurnedPage = false
+    @ObservationIgnored private var scanInProgress = false
+    @ObservationIgnored private var scanRequestedWhileRunning = false
 
     private enum DragEdge: Equatable {
         case previous
@@ -86,14 +88,27 @@ final class LauncherViewModel {
     }
 
     func rescan() async {
-        let apps = await discovery.scan(roots: settings.allScanRoots)
-        do {
-            try repository.reconcile(discovered: apps)
-            discoveredApplications = apps
-            try reloadSnapshot()
-        } catch {
-            presentError(error)
+        guard !scanInProgress else {
+            scanRequestedWhileRunning = true
+            return
         }
+
+        scanInProgress = true
+        defer { scanInProgress = false }
+
+        repeat {
+            scanRequestedWhileRunning = false
+            let roots = settings.allScanRoots
+            let apps = await discovery.scan(roots: roots)
+            guard !Task.isCancelled else { return }
+            do {
+                try repository.reconcile(discovered: apps)
+                discoveredApplications = apps
+                try reloadSnapshot()
+            } catch {
+                presentError(error)
+            }
+        } while scanRequestedWhileRunning && !Task.isCancelled
     }
 
 #if DEBUG

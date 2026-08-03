@@ -12,8 +12,10 @@ final class LayoutRepository {
 
     func reconcile(discovered applications: [InstalledApplication], now: Date = .now) throws {
         let records = try fetchApplications()
+        let layout = try fetchLayout()
         var unmatchedIDs = Set(records.map(\.id))
         var byPath = Dictionary(uniqueKeysWithValues: records.map { ($0.lastKnownPath.lowercased(), $0) })
+        var nextRootOrder = (layout.filter { $0.parentFolderID == nil }.map(\.sortOrder).max() ?? -1) + 1
 
         for app in applications {
             let normalizedPath = app.normalizedPath
@@ -46,7 +48,14 @@ final class LayoutRepository {
                     lastSeenAt: now
                 )
                 context.insert(record)
-                try ensureRootLayout(for: record)
+                context.insert(
+                    LayoutItemRecord(
+                        kind: .application,
+                        applicationRecordID: record.id,
+                        sortOrder: nextRootOrder
+                    )
+                )
+                nextRootOrder += 1
             }
         }
 
@@ -275,13 +284,6 @@ final class LayoutRepository {
         for item in try fetchLayout() where ids.contains(item.applicationRecordID ?? UUID()) { context.delete(item) }
         for record in records { context.delete(record) }
         try context.save()
-    }
-
-    private func ensureRootLayout(for record: ApplicationRecord) throws {
-        let layout = try fetchLayout()
-        guard !layout.contains(where: { $0.applicationRecordID == record.id }) else { return }
-        let nextOrder = (layout.filter { $0.parentFolderID == nil }.map(\.sortOrder).max() ?? -1) + 1
-        context.insert(LayoutItemRecord(kind: .application, applicationRecordID: record.id, sortOrder: nextOrder))
     }
 
     private func fetchApplications() throws -> [ApplicationRecord] {
