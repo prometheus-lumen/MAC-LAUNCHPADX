@@ -308,6 +308,10 @@ private struct PagedLauncherGrid<Content: View>: View {
         .onPreferenceChange(LauncherEntryFramePreferenceKey.self) { frames in
             guard !isPageTransitioning, !viewModel.isDraggingSession, !frames.isEmpty, frames != stableEntryFrames else { return }
             stableEntryFrames = frames
+            viewModel.rootEntryFrames = frames
+        }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+            viewModel.rootGridFrame = frame
         }
         .onAppear {
             retainedPage = viewModel.selectedPage
@@ -635,7 +639,7 @@ private final class AppTilePressView: NSView, NSDraggingSource {
         draggingItem.setDraggingFrame(
             NSRect(
                 x: (bounds.width - size) / 2,
-                y: (bounds.height - size) / 2,
+                y: isFlipped ? 0 : bounds.height - size,
                 width: size,
                 height: size
             ),
@@ -660,7 +664,8 @@ private final class AppTilePressView: NSView, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, movedTo screenPoint: NSPoint) {
-        onDragMoved(screenPoint, dragWindowFrame)
+        // Hit-test the pointer, not the dragging image's origin.
+        onDragMoved(NSEvent.mouseLocation, dragWindowFrame)
     }
 
     func draggingSession(

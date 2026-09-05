@@ -176,7 +176,7 @@ final class LayoutRepository {
 
         var occupied = Set<Int>()
         for (id, slot) in placements {
-            rootByID[id]?.sortOrder = slot
+            if let item = rootByID[id], item.sortOrder != slot { item.sortOrder = slot }
             occupied.insert(slot)
         }
 
@@ -185,10 +185,10 @@ final class LayoutRepository {
             .sorted(by: { $0.sortOrder < $1.sortOrder }) {
             var slot = max(0, item.sortOrder)
             while occupied.contains(slot) { slot += 1 }
-            item.sortOrder = slot
+            if item.sortOrder != slot { item.sortOrder = slot }
             occupied.insert(slot)
         }
-        try context.save()
+        if context.hasChanges { try context.save() }
     }
 
     @discardableResult

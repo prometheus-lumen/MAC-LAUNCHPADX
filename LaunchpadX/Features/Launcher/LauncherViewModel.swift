@@ -25,6 +25,11 @@ final class LauncherViewModel {
     var shouldFocusSearch = false
     var onDismiss: (() -> Void)?
     private var draggedEntryID: UUID?
+    private var nativeDraggedEntryID: UUID?
+    @ObservationIgnored var rootGridFrame: CGRect = .zero
+    @ObservationIgnored var rootEntryFrames: [UUID: CGRect] = [:]
+    @ObservationIgnored private var originalDragFrame: CGRect?
+    @ObservationIgnored private var returningToOrigin = false
     private(set) var groupingTargetID: UUID?
     private var dragPreviewEntries: [LauncherEntry]?
     private var draggedFolderApplicationRecordID: UUID?
@@ -32,6 +37,8 @@ final class LauncherViewModel {
     @ObservationIgnored private var groupingCandidateID: UUID?
     @ObservationIgnored private var groupingHoverTask: Task<Void, Never>?
     @ObservationIgnored private var lastReorderTargetID: UUID?
+    @ObservationIgnored private var reorderPreviews: [UUID: [LauncherEntry]] = [:]
+    @ObservationIgnored private var reorderPreviewCapacity = 0
     @ObservationIgnored private var dragEdgeTurnedPage = false
     @ObservationIgnored private var scanInProgress = false
     @ObservationIgnored private var scanRequestedWhileRunning = false
@@ -147,6 +154,7 @@ final class LauncherViewModel {
     }
 
     private func applySnapshot(_ nextSnapshot: LauncherSnapshot, refreshesSearch: Bool = true) {
+        reorderPreviews.removeAll(keepingCapacity: true)
         snapshot = nextSnapshot
         selectedPage = min(selectedPage, pageCount - 1)
         if refreshesSearch {
@@ -292,9 +300,11 @@ final class LauncherViewModel {
 
     func beginDraggingFromPress(_ entry: LauncherEntry) {
         beginDragging(entry)
+        if draggedEntryID != nil { nativeDraggedEntryID = entry.id }
     }
 
     func completeDraggingFromSourceIfNeeded() {
+        defer { nativeDraggedEntryID = nil }
         guard draggedEntryID != nil else { return }
         if dragEdgeTurnedPage {
             _ = performBackgroundDrop()
@@ -307,7 +317,12 @@ final class LauncherViewModel {
         guard isEditing,
               snapshot.entries.contains(where: { $0.id == entry.id }) else { return }
         cancelGroupingHover()
+        reorderPreviews.removeAll(keepingCapacity: true)
         draggedEntryID = entry.id
+        originalDragFrame = rootEntryFrames[entry.id].map {
+            $0.offsetBy(dx: rootGridFrame.minX, dy: rootGridFrame.minY)
+        }
+        returningToOrigin = false
         groupingTargetID = nil
         lastReorderTargetID = nil
         dragPreviewEntries = Self.compactedEntries(
@@ -318,7 +333,7 @@ final class LauncherViewModel {
     }
 
     func isDragging(_ entry: LauncherEntry) -> Bool {
-        draggedEntryID == entry.id
+        draggedEntryID == entry.id || nativeDraggedEntryID == entry.id
     }
 
     var isDraggingSession: Bool {
@@ -327,7 +342,15 @@ final class LauncherViewModel {
 
     func moveDraggedEntry(toOriginalSlotOf targetID: UUID) {
         guard let sourceID = draggedEntryID else { return }
+        if reorderPreviewCapacity != settings.gridCapacity {
+            reorderPreviews.removeAll(keepingCapacity: true)
+            reorderPreviewCapacity = settings.gridCapacity
+        }
         lastReorderTargetID = targetID
+        if let cached = reorderPreviews[targetID] {
+            updateDragPreview(cached)
+            return
+        }
         if sourceID == targetID {
             updateDragPreview(snapshot.entries)
         } else {
@@ -340,6 +363,7 @@ final class LauncherViewModel {
                 )
             )
         }
+        reorderPreviews[targetID] = dragPreviewEntries
     }
 
     private func moveDraggedEntry(toPage page: Int) {
@@ -357,6 +381,18 @@ final class LauncherViewModel {
     func updateRootDragLocation(_ screenPoint: NSPoint, windowFrame: CGRect) {
         guard draggedEntryID != nil,
               !windowFrame.isEmpty else { return }
+        let point = CGPoint(x: screenPoint.x - windowFrame.minX,
+                            y: windowFrame.maxY - screenPoint.y)
+        let isOriginalPage = snapshot.entries.first(where: { $0.id == draggedEntryID })
+            .map { $0.layoutIndex / settings.gridCapacity == selectedPage } ?? false
+        returningToOrigin = isOriginalPage && originalDragFrame?.contains(point) == true
+        if returningToOrigin {
+            cancelGroupingHover()
+            groupingTargetID = nil
+            dragEdgeTurnedPage = false
+            if let draggedEntryID { moveDraggedEntry(toOriginalSlotOf: draggedEntryID) }
+            return
+        }
         let threshold = min(140, windowFrame.width * 0.10)
         let edge = Self.dragPageDelta(
             screenX: screenPoint.x,
@@ -400,6 +436,7 @@ final class LauncherViewModel {
     }
 
     func dragMoved(over target: LauncherEntry, grouping: Bool) {
+        guard !returningToOrigin else { return }
         guard isEditing,
               let sourceID = draggedEntryID,
               sourceID != target.id,
@@ -442,10 +479,14 @@ final class LauncherViewModel {
         guard isEditing,
               let sourceID = draggedEntryID else { return false }
         do {
+            if returningToOrigin {
+                moveDraggedEntry(toOriginalSlotOf: sourceID)
+                try commitPreviewMove(sourceID: sourceID, fallbackDestinationID: nil)
+                return true
+            }
             if dragEdgeTurnedPage {
                 moveDraggedEntry(toPage: selectedPage)
                 try commitPreviewMove(sourceID: sourceID, fallbackDestinationID: nil)
-                try reloadSnapshot(refreshesSearch: false)
                 return true
             }
             if let folderID = existingFolderDropTargetID(explicitTarget: target) {
@@ -455,7 +496,6 @@ final class LauncherViewModel {
             }
             if sourceID == target.id {
                 try commitPreviewMove(sourceID: sourceID, fallbackDestinationID: nil)
-                try reloadSnapshot(refreshesSearch: false)
                 return true
             }
             guard let source = snapshot.entries.first(where: { $0.id == sourceID }) else { return false }
@@ -467,7 +507,7 @@ final class LauncherViewModel {
             } else {
                 moveDraggedEntry(toOriginalSlotOf: target.id)
                 try commitPreviewMove(sourceID: sourceID, fallbackDestinationID: target.id)
-                createdFolderID = nil
+                return true
             }
             try reloadSnapshot(refreshesSearch: false)
             if let createdFolderID {
@@ -485,11 +525,17 @@ final class LauncherViewModel {
         defer { finishDragging() }
         guard let sourceID = draggedEntryID else { return false }
         do {
+            if returningToOrigin {
+                moveDraggedEntry(toOriginalSlotOf: sourceID)
+                try commitPreviewMove(sourceID: sourceID, fallbackDestinationID: nil)
+                return true
+            }
             if let folderID = activeExistingFolderTargetID {
                 try repository.addRootApplication(sourceID, toFolder: folderID)
             } else {
                 moveDraggedEntry(toPage: selectedPage)
                 try commitPreviewMove(sourceID: sourceID, fallbackDestinationID: nil)
+                return true
             }
             try reloadSnapshot(refreshesSearch: false)
             return true
@@ -894,6 +940,9 @@ final class LauncherViewModel {
         }
         guard let dragPreviewEntries else { return }
         try repository.applyRootLayout(dragPreviewEntries)
+        // The preview is already the committed layout. Keep its identities and geometry
+        // instead of fetching and reconstructing every application on mouse-up.
+        snapshot.entries = dragPreviewEntries
     }
 
     private func existingFolderDropTargetID(explicitTarget: LauncherEntry) -> UUID? {
@@ -940,10 +989,13 @@ final class LauncherViewModel {
         _ rhs: [LauncherEntry]
     ) -> Bool {
         guard let lhs, lhs.count == rhs.count else { return false }
-        return zip(lhs, rhs).allSatisfy { $0.id == $1.id }
+        return zip(lhs, rhs).allSatisfy { $0.id == $1.id && $0.layoutIndex == $1.layoutIndex }
     }
 
     private func finishDragging() {
+        returningToOrigin = false
+        originalDragFrame = nil
+        reorderPreviews.removeAll(keepingCapacity: true)
         cancelGroupingHover()
         dragEdgeTurnedPage = false
         lastReorderTargetID = nil

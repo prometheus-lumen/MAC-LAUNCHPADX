@@ -14,6 +14,39 @@ import Testing
 
 struct LaunchpadXTests {
     @MainActor
+    @Test func returningToOriginalCellRestoresPreviewBeforeReleaseAndAvoidsDuplicateImage() throws {
+        let container = try ModelContainer(for: ApplicationRecord.self, LayoutItemRecord.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let repository = LayoutRepository(container: container)
+        let model = LauncherViewModel(repository: repository, settings: SettingsStore(),
+                                      discovery: ApplicationDiscoveryService(), launcher: ApplicationLauncherService(),
+                                      icons: IconProvider(), searchIndex: SearchIndex())
+        model.loadForUITesting((0..<3).map {
+            InstalledApplication(bundleIdentifier: "return.\($0)", displayName: "Return \($0)",
+                                 bundleURL: URL(fileURLWithPath: "/Applications/Return\($0).app"))
+        })
+        let entries = model.snapshot.entries
+        let source = entries[0]
+        model.rootGridFrame = CGRect(x: 50, y: 100, width: 900, height: 600)
+        model.rootEntryFrames = [source.id: CGRect(x: 0, y: 0, width: 130, height: 120)]
+        model.beginEditing()
+        model.beginDraggingFromPress(source)
+        model.moveDraggedEntry(toOriginalSlotOf: entries[2].id)
+        #expect(model.currentPageEntries.map(\.id) != entries.map(\.id))
+        model.updateRootDragLocation(CGPoint(x: 115, y: 640),
+                                     windowFrame: CGRect(x: 0, y: 0, width: 1000, height: 800))
+        #expect(model.currentPageEntries.map(\.id) == entries.map(\.id))
+        // A displaced neighbour must not steal the original cell's preview or drop.
+        model.dragMoved(over: entries[1], grouping: true)
+        #expect(model.currentPageEntries.map(\.id) == entries.map(\.id))
+        #expect(model.performDrop(on: entries[1]))
+        #expect(model.snapshot.entries.map(\.id) == entries.map(\.id))
+        #expect(model.isDragging(source))
+        model.completeDraggingFromSourceIfNeeded()
+        #expect(!model.isDragging(source))
+    }
+
+    @MainActor
     @Test func cachedStartupRestoresLayoutAndExcludesMissingApplications() throws {
         let container = try ModelContainer(
             for: ApplicationRecord.self, LayoutItemRecord.self,
