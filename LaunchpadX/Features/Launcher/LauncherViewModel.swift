@@ -88,6 +88,16 @@ final class LauncherViewModel {
         shouldFocusSearch = settings.focusSearchOnShow
     }
 
+    func restoreCachedApplications() {
+        do {
+            discoveredApplications = try repository.cachedApplications()
+            try reloadSnapshot()
+            scheduleIconPrewarming()
+        } catch {
+            presentError(error)
+        }
+    }
+
     func rescan() async {
         guard !scanInProgress else {
             scanRequestedWhileRunning = true
@@ -106,11 +116,6 @@ final class LauncherViewModel {
             do {
                 try repository.reconcile(discovered: apps)
                 let nextSnapshot = try repository.snapshot(discoveredApplications: apps)
-                let priorityApplications = prioritizedApplicationsForIconPrewarming(
-                    snapshot: nextSnapshot,
-                    discoveredApplications: apps
-                )
-                await icons.prewarm(Array(priorityApplications.prefix(settings.gridCapacity)))
                 guard !Task.isCancelled else { return }
                 discoveredApplications = apps
                 applySnapshot(nextSnapshot)

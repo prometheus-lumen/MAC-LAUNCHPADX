@@ -223,6 +223,7 @@ struct LauncherView: View {
 }
 
 private struct PagedLauncherGrid<Content: View>: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var viewModel: LauncherViewModel
     @Bindable var settings: SettingsStore
     let onBackgroundTap: () -> Void
@@ -230,6 +231,7 @@ private struct PagedLauncherGrid<Content: View>: View {
     @State private var stableEntryFrames: [UUID: CGRect] = [:]
     @State private var retainedPage: Int?
     @State private var pageReleaseTask: Task<Void, Never>?
+    @State private var isPageTransitioning = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -249,13 +251,16 @@ private struct PagedLauncherGrid<Content: View>: View {
                             }
                         }
                         .frame(width: proxy.size.width, height: proxy.size.height)
+                        .allowsHitTesting(page == viewModel.selectedPage)
+                        .accessibilityHidden(page != viewModel.selectedPage)
                     }
                 }
                 .offset(x: -CGFloat(viewModel.selectedPage) * proxy.size.width)
-                .animation(.interactiveSpring(response: 0.30, dampingFraction: 0.88), value: viewModel.selectedPage)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.28), value: viewModel.selectedPage)
             }
             .simultaneousGesture(
                 SpatialTapGesture().onEnded { tap in
+                    guard !isPageTransitioning else { return }
                     guard !stableEntryFrames.values.contains(where: {
                         $0.contains(tap.location)
                     }) else { return }
@@ -266,23 +271,26 @@ private struct PagedLauncherGrid<Content: View>: View {
         .clipped()
         .coordinateSpace(name: LauncherGridCoordinateSpace.name)
         .onPreferenceChange(LauncherEntryFramePreferenceKey.self) { frames in
-            guard !viewModel.isDraggingSession, !frames.isEmpty else { return }
+            guard !isPageTransitioning, !viewModel.isDraggingSession, !frames.isEmpty, frames != stableEntryFrames else { return }
             stableEntryFrames = frames
         }
         .onAppear {
             retainedPage = viewModel.selectedPage
         }
         .onChange(of: viewModel.selectedPage) { oldPage, newPage in
+            isPageTransitioning = true
             retainedPage = oldPage
             pageReleaseTask?.cancel()
             pageReleaseTask = Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(360))
                 guard !Task.isCancelled, viewModel.selectedPage == newPage else { return }
                 retainedPage = newPage
+                isPageTransitioning = false
             }
         }
         .onDisappear {
             pageReleaseTask?.cancel()
+            isPageTransitioning = false
         }
         .onDrop(
             of: [UTType.plainText],
@@ -295,6 +303,7 @@ private struct PagedLauncherGrid<Content: View>: View {
 
     private func shouldRender(page: Int) -> Bool {
         page == viewModel.selectedPage
+            || abs(page - (retainedPage ?? viewModel.selectedPage)) <= 1
             || page == retainedPage
             || (viewModel.isDraggingSession && abs(page - viewModel.selectedPage) <= 1)
     }
@@ -309,7 +318,7 @@ private struct PagedLauncherGrid<Content: View>: View {
                 ForEach(entries) { entry in
                     entryView(entry, isActivePage)
                         .background {
-                            if isActivePage, !viewModel.isDraggingSession {
+                            if isActivePage, !isPageTransitioning, !viewModel.isDraggingSession {
                                 GeometryReader { proxy in
                                     Color.clear.preference(
                                         key: LauncherEntryFramePreferenceKey.self,

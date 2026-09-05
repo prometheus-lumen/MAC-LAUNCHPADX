@@ -102,6 +102,7 @@ final class AppEnvironment {
             return
         }
 #endif
+        launcherViewModel.restoreCachedApplications()
         monitor.start(roots: settings.allScanRoots)
         startScheduledScanning()
         do {

@@ -1,6 +1,7 @@
 import AppKit
 import CoreServices
 import Foundation
+import Observation
 
 protocol ApplicationDiscovering: Sendable {
     func scan(roots: [URL]) async -> [InstalledApplication]
@@ -99,27 +100,69 @@ protocol IconProviding: Sendable {
 }
 
 final class IconProvider: IconProviding, @unchecked Sendable {
-    private let cache = NSCache<NSString, NSImage>()
+    @Observable
+    fileprivate final class Slot {
+        var image: NSImage
+        var task: Task<Void, Never>?
+        let application: InstalledApplication
+        init(image: NSImage, application: InstalledApplication) {
+            self.image = image
+            self.application = application
+        }
+    }
+
+    private var slots: [String: Slot] = [:]
+    private let placeholder = NSImage(systemSymbolName: "app", accessibilityDescription: nil) ?? NSImage()
+    // Serial IO keeps Launch Services from competing with itself during a cold scan.
+    private let loader = DispatchQueue(label: "LaunchpadX.icon-loader", qos: .utility)
+
+    private func slot(for application: InstalledApplication) -> Slot {
+        let key = application.normalizedPath
+        if let slot = slots[key] { return slot }
+        let slot = Slot(image: placeholder, application: application)
+        slots[key] = slot
+        load(application, into: slot)
+        return slot
+    }
+
+    private func load(_ application: InstalledApplication, into slot: Slot) {
+        slot.task = Task { [loader] in
+            let image: NSImage = await withCheckedContinuation { continuation in
+                loader.async {
+                    dispatchPrecondition(condition: .notOnQueue(.main))
+                    let image = autoreleasepool {
+                        let source = NSWorkspace.shared.icon(forFile: application.bundleURL.path)
+                        var rect = CGRect(x: 0, y: 0, width: 256, height: 256)
+                        guard let bitmap = source.cgImage(forProposedRect: &rect, context: nil, hints: nil) else {
+                            return source
+                        }
+                        return NSImage(cgImage: bitmap, size: rect.size)
+                    }
+                    continuation.resume(returning: image)
+                }
+            }
+            guard !Task.isCancelled else { return }
+            // Publish the loaded image, never perform filesystem IO from a view body.
+            slot.image = image
+            slot.task = nil
+        }
+    }
 
     func icon(for application: InstalledApplication) -> NSImage {
-        let key = application.normalizedPath as NSString
-        if let cached = cache.object(forKey: key) { return cached }
-        let icon = NSWorkspace.shared.icon(forFile: application.bundleURL.path)
-        icon.size = NSSize(width: 256, height: 256)
-        cache.setObject(icon, forKey: key)
-        return icon
+        slot(for: application).image
     }
 
     func prewarm(_ applications: [InstalledApplication]) async {
         for application in applications {
             guard !Task.isCancelled else { return }
-            let key = application.normalizedPath as NSString
-            guard cache.object(forKey: key) == nil else { continue }
-            _ = icon(for: application)
-            await Task.yield()
-            try? await Task.sleep(for: .milliseconds(8))
+            await slot(for: application).task?.value
         }
     }
 
-    func clearCache() { cache.removeAllObjects() }
+    func clearCache() {
+        for slot in slots.values {
+            slot.task?.cancel()
+            load(slot.application, into: slot)
+        }
+    }
 }

@@ -10,6 +10,19 @@ final class LayoutRepository {
         context.autosaveEnabled = true
     }
 
+    /// Restore the last successful scan without touching application bundles on disk.
+    /// The subsequent scan remains authoritative for installs, removals and renames.
+    func cachedApplications() throws -> [InstalledApplication] {
+        try fetchApplications().filter { $0.missingSince == nil }.map {
+            InstalledApplication(
+                bundleIdentifier: $0.bundleIdentifier,
+                displayName: $0.displayName,
+                bundleURL: URL(fileURLWithPath: $0.lastKnownPath),
+                isSystemApplication: $0.lastKnownPath.hasPrefix("/System/")
+            )
+        }
+    }
+
     func reconcile(discovered applications: [InstalledApplication], now: Date = .now) throws {
         let records = try fetchApplications()
         let layout = try fetchLayout()

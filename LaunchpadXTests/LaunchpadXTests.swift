@@ -14,6 +14,43 @@ import Testing
 
 struct LaunchpadXTests {
     @MainActor
+    @Test func cachedStartupRestoresLayoutAndExcludesMissingApplications() throws {
+        let container = try ModelContainer(
+            for: ApplicationRecord.self, LayoutItemRecord.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let repository = LayoutRepository(container: container)
+        let apps = (0..<3).map {
+            InstalledApplication(bundleIdentifier: "fixture.\($0)", displayName: "应用\($0)",
+                                 bundleURL: URL(fileURLWithPath: "/Applications/Fixture\($0).app"))
+        }
+        try repository.reconcile(discovered: apps)
+        let before = try repository.snapshot(discoveredApplications: apps)
+        let folderID = try repository.createFolder(draggedEntryID: before.entries[1].id, targetEntryID: before.entries[0].id)
+        try repository.reconcile(discovered: Array(apps.prefix(2)))
+        let cached = try repository.cachedApplications()
+        #expect(cached.count == 2)
+        #expect(Set(cached.map(\.displayName)) == ["应用0", "应用1"])
+        let restored = try repository.snapshot(discoveredApplications: cached)
+        #expect(restored.entries.count == 1)
+        #expect(restored.entries.first?.id == folderID)
+        #expect(restored.entries.first?.childApplicationRecordIDs.count == 2)
+    }
+
+    @MainActor
+    @Test func iconLookupReturnsPlaceholderThenReusesLoadedImage() async {
+        let provider = IconProvider()
+        let app = InstalledApplication(bundleIdentifier: nil, displayName: "Fixture",
+                                       bundleURL: URL(fileURLWithPath: "/Applications/Fixture.app"))
+        let placeholder = provider.icon(for: app)
+        #expect(provider.icon(for: app) === placeholder)
+        await provider.prewarm([app])
+        let loaded = provider.icon(for: app)
+        #expect(loaded !== placeholder)
+        #expect(provider.icon(for: app) === loaded)
+    }
+
+    @MainActor
     @Test func statusItemImageHasStableSizeWithoutMutatingApplicationIcon() {
         let source = NSImage(size: NSSize(width: 1_024, height: 1_024))
         let statusImage = AppDelegate.makeStatusItemImage(from: source)
