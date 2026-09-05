@@ -3,6 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct LauncherView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var viewModel: LauncherViewModel
     @Bindable var settings: SettingsStore
     @FocusState private var searchFocused: Bool
@@ -24,16 +25,11 @@ struct LauncherView: View {
 
             launcherCanvas
 
-            if let folder = viewModel.openedFolder {
-                Color.black.opacity(0.32)
-                    .ignoresSafeArea()
-                    .onTapGesture { handleBackgroundTap() }
-                    .onDrop(
-                        of: [UTType.plainText],
-                        delegate: FolderOutsideDropDelegate(viewModel: viewModel)
-                    )
-                FolderOverlayView(viewModel: viewModel, folder: folder)
-                    .transition(.scale(scale: 0.94).combined(with: .opacity))
+        }
+        .overlayPreferenceValue(FolderSourceAnchorKey.self) { anchors in
+            GeometryReader { proxy in
+                folderPresentation(anchors: anchors, proxy: proxy)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
             }
         }
         .background(
@@ -67,6 +63,34 @@ struct LauncherView: View {
         } message: { Text(viewModel.errorMessage ?? "") }
         .accessibilityIdentifier("launcher.root")
         .accessibilityValue(viewModel.isEditing ? "editing" : "normal")
+    }
+
+    // Scope the presentation transaction to the overlay, not the application grid.
+    private func folderPresentation(anchors: [UUID: Anchor<CGRect>], proxy: GeometryProxy) -> some View {
+        ZStack {
+            if let folder = viewModel.openedFolder {
+                let source = anchors[folder.id].map { proxy[$0] }
+                let origin = source.map { CGPoint(x: $0.midX, y: $0.minY + settings.iconSize / 2) }
+                    ?? CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                Color.black.opacity(0.32)
+                    .ignoresSafeArea()
+                    .onTapGesture { handleBackgroundTap() }
+                    .onDrop(of: [UTType.plainText], delegate: FolderOutsideDropDelegate(viewModel: viewModel))
+                    .transition(.opacity)
+                    .zIndex(0)
+                FolderOverlayView(viewModel: viewModel, folder: folder)
+                    .transition(reduceMotion ? .opacity : .scale(scale: 0.16)
+                        .combined(with: .offset(x: origin.x - proxy.size.width / 2,
+                                                y: origin.y - proxy.size.height / 2))
+                        .combined(with: .opacity))
+                    .zIndex(1)
+            }
+        }
+        .animation(
+            reduceMotion ? .linear(duration: 0.12) : .smooth(duration: 0.34, extraBounce: 0),
+            value: viewModel.openedFolderID
+        )
+        .allowsHitTesting(viewModel.openedFolderID != nil)
     }
 
     private var launcherCanvas: some View {
@@ -173,6 +197,9 @@ struct LauncherView: View {
         .contextMenu { contextMenu(for: entry) }
 
         tile
+            .anchorPreference(key: FolderSourceAnchorKey.self, value: .bounds) { anchor in
+                entry.kind == .folder && isActivePage ? [entry.id: anchor] : [:]
+            }
             .onDrop(
                 of: [UTType.plainText],
                 delegate: LauncherEntryDropDelegate(
@@ -219,6 +246,14 @@ struct LauncherView: View {
             }
         }
         .shadow(color: .black.opacity(0.38), radius: 3, y: 1)
+    }
+}
+
+private struct FolderSourceAnchorKey: PreferenceKey {
+    static let defaultValue: [UUID: Anchor<CGRect>] = [:]
+
+    static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }
 

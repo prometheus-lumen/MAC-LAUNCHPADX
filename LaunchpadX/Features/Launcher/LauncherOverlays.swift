@@ -63,6 +63,8 @@ struct SearchResultsView: View {
 }
 
 struct FolderOverlayView: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
     @Bindable var viewModel: LauncherViewModel
     let folder: LauncherEntry
     @State private var draftName = ""
@@ -104,9 +106,21 @@ struct FolderOverlayView: View {
         .padding(.horizontal, 54).padding(.vertical, 40)
         .frame(minWidth: 660, maxWidth: 800, minHeight: 360)
         .foregroundStyle(.white)
-        .background(.black.opacity(0.48), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(.white.opacity(0.14), lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.56), radius: 36, y: 18)
+        .background {
+            // Shadow only the panel shape, not a composited copy of every animated icon.
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(LinearGradient(
+                    colors: [Color(white: 0.16).opacity(reduceTransparency ? 1 : 0.94),
+                             Color(white: 0.08).opacity(reduceTransparency ? 1 : 0.90)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                ))
+                .shadow(color: .black.opacity(0.35), radius: 22, y: 12)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .stroke(.white.opacity(contrast == .increased ? 0.65 : 0.20), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
         .onDrop(
             of: [UTType.plainText],
             delegate: FolderGridBackgroundDropDelegate(viewModel: viewModel)
